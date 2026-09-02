@@ -1,9 +1,4 @@
 import asyncio
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 import threading
 import queue
 import os
@@ -22,6 +17,17 @@ bot = Client(
 
 CANAL_ID = -1004489628455
 
+# Crear un bucle de eventos dedicado exclusivamente para Pyrogram
+tg_loop = asyncio.new_event_loop()
+
+def run_bot_loop():
+    asyncio.set_event_loop(tg_loop)
+    tg_loop.run_until_complete(bot.start())
+    tg_loop.run_forever()
+
+# Iniciar el hilo del bot de Telegram de forma segura
+threading.Thread(target=run_bot_loop, daemon=True).start()
+
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
     range_header = request.headers.get('Range', None)
@@ -39,8 +45,7 @@ def stream_video(message_id):
             if not msg or not (msg.video or msg.document):
                 return
             
-            # Calcular el desplazamiento de chunks basado en los bytes solicitados por el navegador
-            chunk_size = 1024 * 1024  # 1MB por chunk en Pyrogram
+            chunk_size = 1024 * 1024  # 1MB por chunk
             offset = byte_start // chunk_size
 
             async for chunk in bot.stream_media(msg, offset=offset):
@@ -50,7 +55,8 @@ def stream_video(message_id):
         finally:
             q.put(None)
 
-    asyncio.run_coroutine_threadsafe(fetch_and_stream(), bot.loop)
+    # Enviar la tarea de streaming de forma segura al bucle de Telegram
+    asyncio.run_coroutine_threadsafe(fetch_and_stream(), tg_loop)
 
     def generate():
         while True:
@@ -67,10 +73,6 @@ def stream_video(message_id):
 
     return Response(generate(), mimetype="video/mp4", direct_passthrough=True)
 
-def run_flask():
+if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-
-if __name__ == '__main__':
-    threading.Thread(target=run_flask, daemon=True).start()
-    bot.run()

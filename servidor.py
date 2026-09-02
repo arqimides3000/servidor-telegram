@@ -1,7 +1,7 @@
+import os
 import asyncio
 import threading
 import queue
-import os
 import re
 from flask import Flask, Response, request
 from pyrogram import Client
@@ -17,16 +17,19 @@ bot = Client(
 
 CANAL_ID = -1004489628455
 
-# Crear un bucle de eventos dedicado exclusivamente para Pyrogram
+# Bucle de eventos dedicado para Telegram
 tg_loop = asyncio.new_event_loop()
 
-def run_bot_loop():
+def start_telegram_bot():
     asyncio.set_event_loop(tg_loop)
-    tg_loop.run_until_complete(bot.start())
-    tg_loop.run_forever()
+    try:
+        tg_loop.run_until_complete(bot.start())
+        tg_loop.run_forever()
+    except Exception as e:
+        print(f"Error en el bot de Telegram: {e}")
 
-# Iniciar el hilo del bot de Telegram de forma segura
-threading.Thread(target=run_bot_loop, daemon=True).start()
+# Iniciar Telegram en segundo plano para no bloquear el puerto web
+threading.Thread(target=start_telegram_bot, daemon=True).start()
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
@@ -41,6 +44,9 @@ def stream_video(message_id):
 
     async def fetch_and_stream():
         try:
+            if not bot.is_connected:
+                await bot.start()
+            
             msg = await bot.get_messages(CANAL_ID, message_id)
             if not msg or not (msg.video or msg.document):
                 return
@@ -55,7 +61,6 @@ def stream_video(message_id):
         finally:
             q.put(None)
 
-    # Enviar la tarea de streaming de forma segura al bucle de Telegram
     asyncio.run_coroutine_threadsafe(fetch_and_stream(), tg_loop)
 
     def generate():

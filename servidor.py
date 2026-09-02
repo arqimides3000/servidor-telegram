@@ -17,19 +17,18 @@ bot = Client(
 
 CANAL_ID = -1004489628455
 
-# Bucle de eventos dedicado para Telegram
+# Bucle dedicado para Telegram en segundo plano
 tg_loop = asyncio.new_event_loop()
 
-def start_telegram_bot():
+def run_telegram():
     asyncio.set_event_loop(tg_loop)
     try:
         tg_loop.run_until_complete(bot.start())
         tg_loop.run_forever()
     except Exception as e:
-        print(f"Error en el bot de Telegram: {e}")
+        print(f"Error en bot: {e}")
 
-# Iniciar Telegram en segundo plano para no bloquear el puerto web
-threading.Thread(target=start_telegram_bot, daemon=True).start()
+threading.Thread(target=run_telegram, daemon=True).start()
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
@@ -51,7 +50,7 @@ def stream_video(message_id):
             if not msg or not (msg.video or msg.document):
                 return
             
-            chunk_size = 1024 * 1024  # 1MB por chunk
+            chunk_size = 1024 * 1024  # 1MB
             offset = byte_start // chunk_size
 
             async for chunk in bot.stream_media(msg, offset=offset):
@@ -80,4 +79,5 @@ def stream_video(message_id):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
+    # Flask corre en el hilo principal para satisfacer el puerto de Render al instante
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

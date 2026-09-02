@@ -29,7 +29,6 @@ CANAL_ID = -1004489628455
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
-    # Obtener la información y el tamaño real del video antes de transmitir
     async def get_media_info():
         if not bot.is_connected:
             await bot.start()
@@ -43,7 +42,7 @@ def stream_video(message_id):
     msg, file_size = future.result()
 
     if not msg or file_size == 0:
-        return "Video no encontrado o inválido", 404
+        return "Video no encontrado", 404
 
     range_header = request.headers.get('Range', None)
     byte_start = 0
@@ -60,10 +59,21 @@ def stream_video(message_id):
 
     async def fetch_and_stream():
         try:
-            chunk_size = 1024 * 1024  # 1MB
-            offset = byte_start // chunk_size
-            async for chunk in bot.stream_media(msg, offset=offset):
+            skipped = 0
+            async for chunk in bot.stream_media(msg):
+                if byte_start > 0:
+                    if skipped + len(chunk) <= byte_start:
+                        skipped += len(chunk)
+                        continue
+                    elif skipped < byte_start:
+                        diff = byte_start - skipped
+                        chunk = chunk[diff:]
+                        skipped = byte_start
+                
                 q.put(chunk)
+                
+                if byte_end < file_size - 1 and skipped >= byte_end:
+                    break
         except Exception as e:
             print(f"Error en streaming: {e}")
         finally:

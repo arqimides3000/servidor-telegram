@@ -18,9 +18,8 @@ app = Flask(__name__)
 def home():
     return "Servidor de streaming activo y en línea.", 200
 
-# Cambiamos el nombre de la sesión para evitar conflictos con archivos caché dañados previos
 bot = Client(
-    "sesion_activa_v2",
+    "sesion_activa_v3",
     api_id=6,
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
     bot_token="8946352821:AAEH1axx8FBMUbfdIRSqBPU9UC0F5VBP1z0"
@@ -34,23 +33,30 @@ def stream_video(message_id):
         try:
             if not bot.is_connected:
                 await bot.start()
+            
             msg = await bot.get_messages(CANAL_ID, message_id)
-            if not msg or not (msg.video or msg.document):
+            if not msg:
+                print(f"[ERROR] El mensaje {message_id} no existe en el canal.")
                 return None, 0
+            
             media = msg.video or msg.document
+            if not media:
+                print(f"[ERROR] El mensaje {message_id} no contiene un video o documento.")
+                return None, 0
+                
             return msg, media.file_size
         except Exception as e:
-            print(f"Error de conexión con Telegram: {e}")
+            print(f"[ERROR] Excepción al obtener mensaje de Telegram: {e}")
             return None, 0
 
-    future = asyncio.run_coroutine_threadsafe(get_media_info(), loop)
     try:
-        msg, file_size = future.result(timeout=15)
+        future = asyncio.run_coroutine_threadsafe(get_media_info(), loop)
+        msg, file_size = future.result(timeout=20)
     except Exception as e:
-        return f"Error interno al conectar con Telegram: {e}", 500
+        return f"Error de tiempo de espera o conexión con Telegram: {e}", 504
 
     if not msg or file_size == 0:
-        return "Video no encontrado o inválido en el canal", 404
+        return f"El mensaje {message_id} no es un video válido o el bot no tiene acceso al canal.", 404
 
     range_header = request.headers.get('Range', None)
     byte_start = 0

@@ -1,5 +1,14 @@
-import os
 import asyncio
+import sys
+
+# Crear y fijar el bucle de eventos ANTES de importar Pyrogram para evitar el RuntimeError
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+import os
 import threading
 import queue
 import re
@@ -8,7 +17,6 @@ from pyrogram import Client
 
 app = Flask(__name__)
 
-# Ruta de verificación para que Render sepa que el servidor está vivo
 @app.route('/')
 def home():
     return "Servidor de streaming activo y en línea.", 200
@@ -21,8 +29,6 @@ bot = Client(
 )
 
 CANAL_ID = -1004489628455
-
-loop = asyncio.new_event_loop()
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
@@ -72,8 +78,8 @@ def stream_video(message_id):
     return Response(generate(), mimetype="video/mp4", direct_passthrough=True)
 
 def run_loop():
-    asyncio.set_event_loop(loop)
-    loop.run_forever()
+    if not loop.is_running():
+        loop.run_forever()
 
 if __name__ == '__main__':
     threading.Thread(target=run_loop, daemon=True).start()

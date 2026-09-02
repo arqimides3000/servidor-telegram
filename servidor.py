@@ -18,11 +18,12 @@ app = Flask(__name__)
 def home():
     return "Servidor de streaming activo y en línea.", 200
 
+# Token verificado y actualizado para @rolitopelis_bot
 bot = Client(
-    "sesion_activa_v3",
+    "sesion_activa_v5",
     api_id=6,
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
-    bot_token="8946352821:AAEH1axx8FBMUbfdIRSqBPU9UC0F5VBP1z0"
+    bot_token="8946352821:AAEpOE3cvaRsUiUaoa1CSeuoFjF1B6ZunmY"
 )
 
 CANAL_ID = -1004489628455
@@ -36,12 +37,12 @@ def stream_video(message_id):
             
             msg = await bot.get_messages(CANAL_ID, message_id)
             if not msg:
-                print(f"[ERROR] El mensaje {message_id} no existe en el canal.")
+                print(f"[ERROR] El mensaje {message_id} no existe.")
                 return None, 0
             
-            media = msg.video or msg.document
+            media = msg.video or msg.document or msg.animation or msg.audio
             if not media:
-                print(f"[ERROR] El mensaje {message_id} no contiene un video o documento.")
+                print(f"[ERROR] El mensaje no contiene un archivo multimedia compatible.")
                 return None, 0
                 
             return msg, media.file_size
@@ -125,3 +126,4 @@ if __name__ == '__main__':
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+ 

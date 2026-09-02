@@ -16,7 +16,7 @@ bot = Client(
     "sesion_nube",
     api_id=6,
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
-    bot_token="8946352821:AAEH1axx8FBMUbfdIRSqBPU9UC0f5VBP1z0"
+    bot_token="8946352821:AAEH1axx8FBMUbfdIRSqBPU9UC0F5VBP1z0"
 )
 
 CANAL_ID = -1004489628455
@@ -27,17 +27,23 @@ def stream_video(message_id):
 
     async def fetch_and_stream():
         try:
+            print(f"[DEBUG] Buscando mensaje {message_id} en canal {CANAL_ID}...")
             msg = await bot.get_messages(CANAL_ID, message_id)
             if not msg:
-                print(f"Error: El mensaje {message_id} no existe en el canal.")
+                print(f"[DEBUG] El mensaje {message_id} no fue encontrado.")
                 return
+            
+            print(f"[DEBUG] Mensaje encontrado. Verificando contenido multimedia...")
             if not (msg.video or msg.document):
-                print(f"Error: El mensaje {message_id} no es un video válido.")
+                print(f"[DEBUG] El mensaje {message_id} no contiene un video o documento válido.")
                 return
+            
+            print(f"[DEBUG] Iniciando descarga y streaming de fragmentos...")
             async for chunk in bot.stream_media(msg):
                 q.put(chunk)
+            print(f"[DEBUG] Streaming completado con éxito para el mensaje {message_id}.")
         except Exception as e:
-            print(f"Excepción en streaming: {e}")
+            print(f"[DEBUG] Excepción crítica en streaming: {e}")
         finally:
             q.put(None)
 

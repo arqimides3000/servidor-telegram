@@ -7,7 +7,8 @@ except RuntimeError:
 import threading
 import queue
 import os
-from flask import Flask, Response
+import re
+from flask import Flask, Response, request
 from pyrogram import Client
 
 app = Flask(__name__)
@@ -23,27 +24,29 @@ CANAL_ID = -1004489628455
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
+    range_header = request.headers.get('Range', None)
+    byte_start = 0
+    if range_header:
+        match = re.search(r'bytes=(\d+)-', range_header)
+        if match:
+            byte_start = int(match.group(1))
+
     q = queue.Queue()
 
     async def fetch_and_stream():
         try:
-            print(f"[DEBUG] Buscando mensaje {message_id} en canal {CANAL_ID}...")
             msg = await bot.get_messages(CANAL_ID, message_id)
-            if not msg:
-                print(f"[DEBUG] El mensaje {message_id} no fue encontrado.")
+            if not msg or not (msg.video or msg.document):
                 return
             
-            print(f"[DEBUG] Mensaje encontrado. Verificando contenido multimedia...")
-            if not (msg.video or msg.document):
-                print(f"[DEBUG] El mensaje {message_id} no contiene un video o documento válido.")
-                return
-            
-            print(f"[DEBUG] Iniciando descarga y streaming de fragmentos...")
-            async for chunk in bot.stream_media(msg):
+            # Calcular el desplazamiento de chunks basado en los bytes solicitados por el navegador
+            chunk_size = 1024 * 1024  # 1MB por chunk en Pyrogram
+            offset = byte_start // chunk_size
+
+            async for chunk in bot.stream_media(msg, offset=offset):
                 q.put(chunk)
-            print(f"[DEBUG] Streaming completado con éxito para el mensaje {message_id}.")
         except Exception as e:
-            print(f"[DEBUG] Excepción crítica en streaming: {e}")
+            print(f"Error en streaming: {e}")
         finally:
             q.put(None)
 
@@ -55,6 +58,12 @@ def stream_video(message_id):
             if chunk is None:
                 break
             yield chunk
+
+    if range_header:
+        resp = Response(generate(), status=206, mimetype="video/mp4", direct_passthrough=True)
+        resp.headers.add('Content-Range', f'bytes {byte_start}-/*')
+        resp.headers.add('Accept-Ranges', 'bytes')
+        return resp
 
     return Response(generate(), mimetype="video/mp4", direct_passthrough=True)
 

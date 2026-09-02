@@ -18,9 +18,8 @@ app = Flask(__name__)
 def home():
     return "Servidor de streaming activo y en línea.", 200
 
-# Token verificado y actualizado para @rolitopelis_bot
 bot = Client(
-    "sesion_activa_v5",
+    "sesion_activa_v6",
     api_id=6,
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
     bot_token="8946352821:AAEpOE3cvaRsUiUaoa1CSeuoFjF1B6ZunmY"
@@ -34,6 +33,9 @@ def stream_video(message_id):
         try:
             if not bot.is_connected:
                 await bot.start()
+            
+            # Fuerza a Pyrogram a reconocer y cargar el canal privado en esta nueva sesión
+            await bot.get_chat(CANAL_ID)
             
             msg = await bot.get_messages(CANAL_ID, message_id)
             if not msg:
@@ -126,4 +128,3 @@ if __name__ == '__main__':
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
- 

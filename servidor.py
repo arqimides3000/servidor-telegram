@@ -26,7 +26,7 @@ bot = Client(
     bot_token="8946352821:AAEpOE3cvaRsUiUaoa1CSeuoFjF1B6ZunmY"
 )
 
-CANAL_ID = -1004489628455  # Lo cambiaremos si el diagnóstico muestra otro
+CANAL_ID = -1004489628455  # Lo cambiaremos si el diagnóstico muestra otro ID real
 
 @app.route('/debug-chats')
 def debug_chats():

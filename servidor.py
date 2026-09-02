@@ -8,6 +8,11 @@ from pyrogram import Client
 
 app = Flask(__name__)
 
+# Ruta de verificación para que Render sepa que el servidor está vivo
+@app.route('/')
+def home():
+    return "Servidor de streaming activo y en línea.", 200
+
 bot = Client(
     "sesion_nube",
     api_id=6,
@@ -17,7 +22,6 @@ bot = Client(
 
 CANAL_ID = -1004489628455
 
-# Bucle de eventos dedicado para las peticiones de Telegram
 loop = asyncio.new_event_loop()
 
 @app.route('/stream/<int:message_id>')
@@ -33,7 +37,6 @@ def stream_video(message_id):
 
     async def fetch_and_stream():
         try:
-            # Conexión bajo demanda: el bot conecta solo cuando el navegador lo solicita
             if not bot.is_connected:
                 await bot.start()
             
@@ -41,7 +44,7 @@ def stream_video(message_id):
             if not msg or not (msg.video or msg.document):
                 return
             
-            chunk_size = 1024 * 1024  # 1MB por chunk
+            chunk_size = 1024 * 1024
             offset = byte_start // chunk_size
 
             async for chunk in bot.stream_media(msg, offset=offset):
@@ -73,9 +76,7 @@ def run_loop():
     loop.run_forever()
 
 if __name__ == '__main__':
-    # El bucle asíncrono corre en segundo plano
     threading.Thread(target=run_loop, daemon=True).start()
     
-    # Flask toma el control del puerto principal al instante para Render
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)

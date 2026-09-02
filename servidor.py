@@ -1,7 +1,4 @@
 import asyncio
-import sys
-
-# Crear y fijar el bucle de eventos ANTES de importar Pyrogram para evitar el RuntimeError
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
@@ -32,27 +29,39 @@ CANAL_ID = -1004489628455
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
+    # Obtener la información y el tamaño real del video antes de transmitir
+    async def get_media_info():
+        if not bot.is_connected:
+            await bot.start()
+        msg = await bot.get_messages(CANAL_ID, message_id)
+        if not msg or not (msg.video or msg.document):
+            return None, 0
+        media = msg.video or msg.document
+        return msg, media.file_size
+
+    future = asyncio.run_coroutine_threadsafe(get_media_info(), loop)
+    msg, file_size = future.result()
+
+    if not msg or file_size == 0:
+        return "Video no encontrado o inválido", 404
+
     range_header = request.headers.get('Range', None)
     byte_start = 0
+    byte_end = file_size - 1
+
     if range_header:
-        match = re.search(r'bytes=(\d+)-', range_header)
+        match = re.search(r'bytes=(\d+)-(\d*)', range_header)
         if match:
             byte_start = int(match.group(1))
+            if match.group(2):
+                byte_end = int(match.group(2))
 
     q = queue.Queue()
 
     async def fetch_and_stream():
         try:
-            if not bot.is_connected:
-                await bot.start()
-            
-            msg = await bot.get_messages(CANAL_ID, message_id)
-            if not msg or not (msg.video or msg.document):
-                return
-            
-            chunk_size = 1024 * 1024
+            chunk_size = 1024 * 1024  # 1MB
             offset = byte_start // chunk_size
-
             async for chunk in bot.stream_media(msg, offset=offset):
                 q.put(chunk)
         except Exception as e:
@@ -69,13 +78,19 @@ def stream_video(message_id):
                 break
             yield chunk
 
+    content_length = (byte_end - byte_start) + 1
+
     if range_header:
         resp = Response(generate(), status=206, mimetype="video/mp4", direct_passthrough=True)
-        resp.headers.add('Content-Range', f'bytes {byte_start}-/*')
+        resp.headers.add('Content-Range', f'bytes {byte_start}-{byte_end}/{file_size}')
         resp.headers.add('Accept-Ranges', 'bytes')
+        resp.headers.add('Content-Length', str(content_length))
         return resp
 
-    return Response(generate(), mimetype="video/mp4", direct_passthrough=True)
+    resp = Response(generate(), status=200, mimetype="video/mp4", direct_passthrough=True)
+    resp.headers.add('Content-Length', str(file_size))
+    resp.headers.add('Accept-Ranges', 'bytes')
+    return resp
 
 def run_loop():
     if not loop.is_running():

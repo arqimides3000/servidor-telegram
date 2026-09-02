@@ -17,7 +17,7 @@ bot = Client(
     "sesion_nube", 
     api_id=6, 
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
-    bot_token="AQUÍ_PEGAS_TU_NUEVO_TOKEN"
+    bot_token="8946352821:AAEH1axx8FBMUbfdIRSqBPU9UC0f5VBP1z0"
 )
 
 CANAL_ID = -1004489628455

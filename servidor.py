@@ -6,9 +6,8 @@ except RuntimeError:
 
 import threading
 import queue
-import re
 import os
-from flask import Flask, Response, request
+from flask import Flask, Response
 from pyrogram import Client
 
 app = Flask(__name__)

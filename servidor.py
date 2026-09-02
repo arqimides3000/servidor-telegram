@@ -18,14 +18,41 @@ app = Flask(__name__)
 def home():
     return "Servidor de streaming activo y en línea.", 200
 
+# Nueva sesión con depuración de canales
 bot = Client(
-    "sesion_activa_v6",
+    "sesion_activa_v7",
     api_id=6,
     api_hash="eb06d4abfb49dc3eeb1aeb98ae0f581e",
     bot_token="8946352821:AAEpOE3cvaRsUiUaoa1CSeuoFjF1B6ZunmY"
 )
 
-CANAL_ID = -1004489628455
+CANAL_ID = -1004489628455  # Lo cambiaremos si el diagnóstico muestra otro
+
+@app.route('/debug-chats')
+def debug_chats():
+    """Esta página te mostrará todos los canales y chats a los que tiene acceso tu bot."""
+    async def list_chats():
+        try:
+            if not bot.is_connected:
+                await bot.start()
+            
+            chats_info = []
+            async for dialog in bot.get_dialogs():
+                chats_info.append({
+                    "nombre": dialog.chat.title,
+                    "id": dialog.chat.id,
+                    "tipo": str(dialog.chat.type)
+                })
+            return chats_info
+        except Exception as e:
+            return [{"error": str(e)}]
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(list_chats(), loop)
+        result = future.result(timeout=25)
+        return {"chats_encontrados": result}
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 @app.route('/stream/<int:message_id>')
 def stream_video(message_id):
@@ -34,7 +61,6 @@ def stream_video(message_id):
             if not bot.is_connected:
                 await bot.start()
             
-            # Fuerza a Pyrogram a reconocer y cargar el canal privado en esta nueva sesión
             await bot.get_chat(CANAL_ID)
             
             msg = await bot.get_messages(CANAL_ID, message_id)

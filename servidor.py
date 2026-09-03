@@ -33,24 +33,22 @@ def stream_telegram(msg_id):
     bot_token = bot_token.strip()
     api_hash = api_hash.strip()
 
-    clean_channel = channel_id_str.strip()
-    try:
-      channel_id = int(clean_channel)
-    except ValueError:
-      channel_id = clean_channel
+    # Asegurar formato entero para el canal con prefijo -100
+    channel_id = int(channel_id_str.strip())
 
     async def get_url():
-      session_file = "/tmp/mi_bot_session"
+      # Usar in_memory=True para evitar problemas con archivos temporales borrados por Render
       async with Client(
-          session_file,
+          "bot_session",
           api_id=api_id,
           api_hash=api_hash,
           bot_token=bot_token,
+          in_memory=True,
       ) as app_client:
-        # Registrar el canal obligatoriamente en la sesión limpia
-        await app_client.get_chat(channel_id)
+        # Forzar la resolución del canal privado usando el ID directo
+        chat = await app_client.get_chat(channel_id)
 
-        msg = await app_client.get_messages(channel_id, msg_id)
+        msg = await app_client.get_messages(chat.id, msg_id)
         if msg and (msg.video or msg.document):
           media = msg.video or msg.document
           file_id = media.file_id

@@ -6,7 +6,7 @@ try:
 except RuntimeError:
   asyncio.set_event_loop(asyncio.new_event_loop())
 
-from flask import Flask, Response, request
+from flask import Flask, redirect, request
 from pyrogram import Client
 import requests
 
@@ -68,18 +68,8 @@ def stream_telegram(msg_id):
     if not download_url:
       return "Video no encontrado en el canal o ID incorrecto", 404
 
-    video_req = requests.get(download_url, stream=True)
+    return redirect(download_url)
 
-    headers = {
-        "Content-Type": video_req.headers.get("content-type", "video/mp4"),
-        "Content-Disposition": f"inline; filename=video_{msg_id}.mp4",
-    }
-
-    return Response(
-        video_req.iter_content(chunk_size=1024 * 64),
-        headers=headers,
-        status=video_req.status_code,
-    )
   except Exception as e:
     return f"Error en el servidor: {str(e)}", 500
 

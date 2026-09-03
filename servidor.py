@@ -37,16 +37,15 @@ def stream_telegram(msg_id):
       channel_id = channel_id_str
 
     async def get_url():
+      # Usar /tmp para guardar la sesión y cachear el canal correctamente
+      session_file = "/tmp/mi_bot_session"
       async with Client(
-          "mi_bot_session",
+          session_file,
           api_id=api_id,
           api_hash=api_hash,
           bot_token=bot_token,
-          in_memory=True,
       ) as app_client:
-        # Carga los chats del bot para registrar el canal privado en memoria
-        async for dialog in app_client.get_dialogs():
-          pass
+        await app_client.get_chat(channel_id)
 
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):

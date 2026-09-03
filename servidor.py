@@ -44,12 +44,13 @@ def stream_telegram(msg_id):
       )
 
     async def get_url():
+      # Guardar la sesión en /tmp para reutilizarla y evitar bloqueos de Flood Wait
+      session_path = "/tmp/bot_session"
       async with Client(
-          "bot_session",
+          session_path,
           api_id=api_id,
           api_hash=api_hash,
           bot_token=bot_token,
-          in_memory=True,
       ) as app_client:
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):
@@ -68,7 +69,6 @@ def stream_telegram(msg_id):
     if not download_url:
       return "Video no encontrado en el canal o ID incorrecto", 404
 
-    # Redirección directa al archivo multimedia para app (VideoView) y navegador
     return redirect(download_url)
 
   except Exception as e:

@@ -1,16 +1,22 @@
 import asyncio
 import os
-from flask import Response, request
+from flask import Flask, Response, request
 from pyrogram import Client
 import requests
-from flask import Flask
 
 app = Flask(__name__)
 
-API_ID = os.environ.get("TELEGRAM_API_ID")
+# Convertir API_ID a número entero para evitar errores de inicio
+api_id_env = os.environ.get("TELEGRAM_API_ID")
+API_ID = int(api_id_env) if api_id_env and api_id_env.isdigit() else 0
 API_HASH = os.environ.get("TELEGRAM_API_HASH")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
+
+channel_id_env = os.environ.get("TELEGRAM_CHANNEL_ID")
+try:
+  CHANNEL_ID = int(channel_id_env) if channel_id_env else 0
+except ValueError:
+  CHANNEL_ID = channel_id_env
 
 app_client = Client(
     "mi_bot_session",

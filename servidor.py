@@ -1,7 +1,6 @@
 import asyncio
 import os
 
-# Parche necesario para que Pyrogram no falle al importarse en Python moderno
 try:
   asyncio.get_event_loop()
 except RuntimeError:
@@ -45,6 +44,9 @@ def stream_telegram(msg_id):
           bot_token=bot_token,
           in_memory=True,
       ) as app_client:
+        # Forzar la resolución del canal privado para evitar el error de Peer ID
+        await app_client.get_chat(channel_id)
+
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):
           media = msg.video or msg.document

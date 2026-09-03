@@ -34,7 +34,6 @@ def stream_telegram(msg_id):
     api_hash = api_hash.strip()
     channel_id_str = channel_input.strip()
 
-    # Si son solo números, convertir a entero; si tiene letras, usar como username
     if channel_id_str.lstrip("-").isdigit():
       channel_id = int(channel_id_str)
     else:
@@ -70,9 +69,15 @@ def stream_telegram(msg_id):
       return "Video no encontrado en el canal o ID incorrecto", 404
 
     video_req = requests.get(download_url, stream=True)
+
+    headers = {
+        "Content-Type": video_req.headers.get("content-type", "video/mp4"),
+        "Content-Disposition": f"inline; filename=video_{msg_id}.mp4",
+    }
+
     return Response(
         video_req.iter_content(chunk_size=1024 * 64),
-        content_type=video_req.headers.get("content-type", "video/mp4"),
+        headers=headers,
         status=video_req.status_code,
     )
   except Exception as e:

@@ -32,11 +32,17 @@ def stream_telegram(msg_id):
     api_id = int(api_id_str.strip())
     bot_token = bot_token.strip()
     api_hash = api_hash.strip()
-    channel_id = channel_input.strip()
+    channel_id_str = channel_input.strip()
 
-    # Si es un ID numérico en texto, convertirlo a entero
-    if channel_id.startswith("-") or channel_id.isdigit():
-      channel_id = int(channel_id)
+    # Si son solo números, convertir a entero; si tiene letras, usar como username
+    if channel_id_str.lstrip("-").isdigit():
+      channel_id = int(channel_id_str)
+    else:
+      channel_id = (
+          channel_id_str
+          if channel_id_str.startswith("@")
+          else "@" + channel_id_str
+      )
 
     async def get_url():
       async with Client(

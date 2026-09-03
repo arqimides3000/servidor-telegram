@@ -1,5 +1,12 @@
 import asyncio
 import os
+
+# Parche necesario para que Pyrogram no falle al importarse en Python moderno
+try:
+  asyncio.get_event_loop()
+except RuntimeError:
+  asyncio.set_event_loop(asyncio.new_event_loop())
+
 from flask import Flask, Response, request
 from pyrogram import Client
 import requests
@@ -21,11 +28,7 @@ def stream_telegram(msg_id):
     channel_id_str = os.environ.get("TELEGRAM_CHANNEL_ID")
 
     if not api_id_str or not api_hash or not bot_token or not channel_id_str:
-      return (
-          "Error: Faltan variables de entorno en Render (TELEGRAM_API_ID,"
-          " TELEGRAM_API_HASH, TELEGRAM_BOT_TOKEN o TELEGRAM_CHANNEL_ID)",
-          500,
-      )
+      return "Error: Faltan variables de entorno en Render", 500
 
     api_id = int(api_id_str)
 

@@ -33,7 +33,6 @@ def stream_telegram(msg_id):
     bot_token = bot_token.strip()
     api_hash = api_hash.strip()
 
-    # Limpiar espacios y asegurar formato numérico correcto para el canal
     clean_channel = channel_id_str.strip()
     try:
       channel_id = int(clean_channel)
@@ -48,11 +47,8 @@ def stream_telegram(msg_id):
           api_hash=api_hash,
           bot_token=bot_token,
       ) as app_client:
-        # Intentar forzar resolución del chat
-        try:
-          await app_client.get_chat(channel_id)
-        except Exception:
-          pass
+        # Registrar el canal obligatoriamente en la sesión limpia
+        await app_client.get_chat(channel_id)
 
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):

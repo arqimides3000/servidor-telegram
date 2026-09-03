@@ -57,7 +57,7 @@ async def stream_telegram(msg_id: int, request: Request):
   file_size = media.file_size
   mime_type = getattr(media, "mime_type", "video/mp4")
 
-  # Si se abre desde la PC, muestra el reproductor web
+  # Si se abre desde la PC (navegador), muestra el reproductor web
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
     await client.stop()
@@ -82,12 +82,11 @@ async def stream_telegram(msg_id: int, request: Request):
         """
     return HTMLResponse(content=html_player)
 
-  # Lectura del rango de bytes solicitado por Android / Fire TV
+  # Lectura y cálculo exacto del rango de bytes solicitado por Android / Fire TV
   range_header = request.headers.get("range")
   offset = 0
   if range_header:
     try:
-      # Ej: bytes=1048576-
       parts = range_header.replace("bytes=", "").split("-")
       if parts[0]:
         offset = int(parts[0])
@@ -96,13 +95,21 @@ async def stream_telegram(msg_id: int, request: Request):
 
   async def generate():
     try:
-      # Pyrogram permite iniciar la lectura desde un byte específico (offset)
-      async for chunk in client.stream_media(msg, offset=offset):
+      current_byte = 0
+      async for chunk in client.stream_media(msg):
+        chunk_len = len(chunk)
+        if current_byte + chunk_len <= offset:
+          current_byte += chunk_len
+          continue
+        if current_byte < offset:
+          diff = offset - current_byte
+          chunk = chunk[diff:]
+          current_byte = offset
+        current_byte += len(chunk)
         yield chunk
     finally:
       await client.stop()
 
-  # Cabeceras compatibles con reproductores de Smart TV y Android
   headers = {
       "Content-Length": str(file_size - offset),
       "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",

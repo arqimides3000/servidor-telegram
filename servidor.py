@@ -7,7 +7,7 @@ except RuntimeError:
 
 import os
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pyrogram import Client
 
 app = FastAPI()
@@ -17,29 +17,6 @@ api_hash = os.environ.get("TELEGRAM_API_HASH", "")
 session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
-TEMP_DIR = "/tmp"
-bot_client = None
-
-
-@app.on_event("startup")
-async def startup_event():
-  global bot_client
-  if api_id and api_hash and session_string:
-    bot_client = Client(
-        "server_session",
-        api_id=api_id,
-        api_hash=api_hash,
-        session_string=session_string,
-        in_memory=True,
-    )
-    await bot_client.start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-  if bot_client:
-    await bot_client.stop()
-
 
 @app.get("/")
 def home():
@@ -48,10 +25,8 @@ def home():
 
 @app.get("/stream/{msg_id}")
 async def stream_telegram(msg_id: int, request: Request):
-  if not bot_client:
-    raise HTTPException(
-        status_code=500, detail="Cliente de Telegram no iniciado"
-    )
+  if not api_id or not api_hash or not session_string or not channel_input:
+    raise HTTPException(status_code=500, detail="Faltan variables de entorno")
 
   channel_id = (
       int(channel_input)
@@ -63,48 +38,68 @@ async def stream_telegram(msg_id: int, request: Request):
       )
   )
 
-  msg = await bot_client.get_messages(channel_id, msg_id)
-  if not msg or not (msg.video or msg.document):
-    raise HTTPException(status_code=404, detail="Video no encontrado")
+  # async with gestiona el inicio y cierre limpio de la sesión al instante sin bloquear el servidor
+  async with Client(
+      "server_session",
+      api_id=api_id,
+      api_hash=api_hash,
+      session_string=session_string,
+      in_memory=True,
+  ) as bot_client:
+    msg = await bot_client.get_messages(channel_id, msg_id)
+    if not msg or not (msg.video or msg.document):
+      raise HTTPException(status_code=404, detail="Video no encontrado")
 
-  media = msg.video or msg.document
-  file_name = (
-      getattr(media, "file_name", f"video_{msg_id}.mp4")
-      or f"video_{msg_id}.mp4"
-  )
-  local_path = os.path.join(TEMP_DIR, f"{msg_id}_{file_name}")
+    media = msg.video or msg.document
+    file_size = media.file_size
+    mime_type = getattr(media, "mime_type", "video/mp4")
 
-  # Descarga el archivo completo a la memoria temporal de Render una sola vez
-  if not os.path.exists(local_path):
-    await bot_client.download_media(msg, file_name=local_path)
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header:
+      stream_url = str(request.url)
+      html_player = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Reproductor - Pelis Rolando</title>
+                <meta charset="utf-8">
+                <style>
+                    body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+                    video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
+                </style>
+            </head>
+            <body>
+                <video controls autoplay playsinline src="{stream_url}">
+                    Tu navegador no soporta la reproducción de video.
+                </video>
+            </body>
+            </html>
+            """
+      return HTMLResponse(content=html_player)
 
-  mime_type = getattr(media, "mime_type", "video/mp4")
+    range_header = request.headers.get("range")
+    offset = 0
+    if range_header:
+      try:
+        parts = range_header.replace("bytes=", "").split("-")
+        if parts[0]:
+          offset = int(parts[0])
+      except ValueError:
+        offset = 0
 
-  accept_header = request.headers.get("accept", "")
-  if "text/html" in accept_header:
-    stream_url = str(request.url)
-    html_player = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Reproductor - Pelis Rolando</title>
-            <meta charset="utf-8">
-            <style>
-                body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
-                video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
-            </style>
-        </head>
-        <body>
-            <video controls autoplay playsinline src="{stream_url}">
-                Tu navegador no soporta la reproducción de video.
-            </video>
-        </body>
-        </html>
-        """
-    return HTMLResponse(content=html_player)
+    async def generate():
+      async for chunk in bot_client.stream_media(msg, offset=offset):
+        yield chunk
 
-  # FileResponse entrega el archivo local gestionando los saltos de bytes perfectamente
-  return FileResponse(local_path, media_type=mime_type, filename=file_name)
+    headers = {
+        "Content-Length": str(file_size - offset),
+        "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",
+        "Accept-Ranges": "bytes",
+    }
+
+    return StreamingResponse(
+        generate(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
+    )
 
 
 if __name__ == "__main__":

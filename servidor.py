@@ -1,106 +1,101 @@
-import asyncio
 import os
-
-try:
-  asyncio.get_event_loop()
-except RuntimeError:
-  asyncio.set_event_loop(asyncio.new_event_loop())
-
-from flask import Flask, redirect, request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pyrogram import Client
-import requests
 
-app = Flask(__name__)
+app = FastAPI()
+
+api_id = int(os.environ.get("TELEGRAM_API_ID", 0))
+api_hash = os.environ.get("TELEGRAM_API_HASH", "")
+session_string = os.environ.get("SESSION_STRING", "")
+channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
 
-@app.route("/")
+@app.get("/")
 def home():
-  return "HELLO, WORLD!"
+  return {"status": "SERVIDOR ACTIVO - PELIS ROLANDO"}
 
 
-@app.route("/stream/<int:msg_id>")
-def stream_telegram(msg_id):
-  try:
-    api_id_str = os.environ.get("TELEGRAM_API_ID")
-    api_hash = os.environ.get("TELEGRAM_API_HASH")
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    channel_input = os.environ.get("TELEGRAM_CHANNEL_ID")
+@app.get("/stream/{msg_id}")
+async def stream_telegram(msg_id: int, request: Request):
+  if not api_id or not api_hash or not session_string or not channel_input:
+    raise HTTPException(status_code=500, detail="Faltan variables de entorno")
 
-    if not api_id_str or not api_hash or not bot_token or not channel_input:
-      return "Error: Faltan variables de entorno en Render", 500
-
-    api_id = int(api_id_str.strip())
-    bot_token = bot_token.strip()
-    api_hash = api_hash.strip()
-    channel_id_str = channel_input.strip()
-
-    if channel_id_str.lstrip("-").isdigit():
-      channel_id = int(channel_id_str)
-    else:
-      channel_id = (
-          channel_id_str
-          if channel_id_str.startswith("@")
-          else "@" + channel_id_str
+  channel_id = (
+      int(channel_input)
+      if channel_input.lstrip("-").isdigit()
+      else (
+          channel_input
+          if channel_input.startswith("@")
+          else "@" + channel_input
       )
+  )
 
-    async def get_url():
-      session_path = "/tmp/bot_session"
-      async with Client(
-          session_path,
-          api_id=api_id,
-          api_hash=api_hash,
-          bot_token=bot_token,
-      ) as app_client:
-        msg = await app_client.get_messages(channel_id, msg_id)
-        if msg and (msg.video or msg.document):
-          media = msg.video or msg.document
-          file_id = media.file_id
-          r = requests.get(
-              f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
-          ).json()
-          if r.get("ok"):
-            file_path = r["result"]["file_path"]
-            return f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
-      return None
+  client = Client(
+      "server_session",
+      api_id=api_id,
+      api_hash=api_hash,
+      session_string=session_string,
+      in_memory=True,
+  )
 
-    download_url = asyncio.run(get_url())
+  await client.start()
+  msg = await client.get_messages(channel_id, msg_id)
 
-    if not download_url:
-      return "Video no encontrado en el canal o ID incorrecto", 404
+  if not msg or not (msg.video or msg.document):
+    await client.stop()
+    raise HTTPException(status_code=404, detail="Video no encontrado")
 
-    # Detectar si la petición viene de un navegador web (PC) o del reproductor de la app
-    accept_header = request.headers.get("Accept", "")
+  media = msg.video or msg.document
+  file_size = media.file_size
+  mime_type = getattr(media, "mime_type", "video/mp4")
 
-    if "text/html" in accept_header:
-      # Para navegadores web: mostrar la página HTML con el reproductor integrado para verlo online
-      html_player = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Reproductor - Pelis Rolando</title>
-                <meta charset="utf-8">
-                <style>
-                    body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
-                    video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
-                </style>
-            </head>
-            <body>
-                <video controls autoplay playsinline>
-                    <source src="{download_url}" type="video/mp4">
-                    Tu navegador no soporta la reproducción de video.
-                </video>
-            </body>
-            </html>
-            """
-      return html_player
-    else:
-      # Para la app de Android: redirección directa para streaming nativo en el VideoView
-      return redirect(download_url)
+  accept_header = request.headers.get("accept", "")
 
-  except Exception as e:
-    return f"Error en el servidor: {str(e)}", 500
+  # Si se abre desde la computadora (navegador web), mostramos el reproductor online
+  if "text/html" in accept_header:
+    await client.stop()
+    stream_url = str(request.url)
+    html_player = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Reproductor - Pelis Rolando</title>
+            <meta charset="utf-8">
+            <style>
+                body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+                video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
+            </style>
+        </head>
+        <body>
+            <video controls autoplay playsinline src="{stream_url}">
+                Tu navegador no soporta la reproducción de video.
+            </video>
+        </body>
+        </html>
+        """
+    return HTMLResponse(content=html_player)
+
+  # Para la app de Android o streaming directo, enviamos los fragmentos en tiempo real
+  async def generate():
+    try:
+      async for chunk in client.stream_media(msg):
+        yield chunk
+    finally:
+      await client.stop()
+
+  return StreamingResponse(
+      generate(),
+      media_type=mime_type,
+      headers={
+          "Content-Length": str(file_size),
+          "Accept-Ranges": "bytes",
+      },
+  )
 
 
 if __name__ == "__main__":
+  import uvicorn
+
   port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
+  uvicorn.run("servidor:app", host="0.0.0.0", port=port)

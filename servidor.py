@@ -6,9 +6,7 @@ import requests
 
 app = Flask(__name__)
 
-# Convertir API_ID a número entero para evitar errores de inicio
-api_id_env = os.environ.get("TELEGRAM_API_ID")
-API_ID = int(api_id_env) if api_id_env and api_id_env.isdigit() else 0
+API_ID = int(os.environ.get("TELEGRAM_API_ID", 0))
 API_HASH = os.environ.get("TELEGRAM_API_HASH")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
@@ -17,14 +15,6 @@ try:
   CHANNEL_ID = int(channel_id_env) if channel_id_env else 0
 except ValueError:
   CHANNEL_ID = channel_id_env
-
-app_client = Client(
-    "mi_bot_session",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    in_memory=True,
-)
 
 
 @app.route("/")
@@ -39,21 +29,28 @@ def stream_telegram(msg_id):
     asyncio.set_event_loop(loop)
 
     async def get_url():
-      if not app_client.is_connected:
-        await app_client.start()
-      msg = await app_client.get_messages(CHANNEL_ID, msg_id)
-      if msg and (msg.video or msg.document):
-        media = msg.video or msg.document
-        file_id = media.file_id
-        r = requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
-        ).json()
-        if r.get("ok"):
-          file_path = r["result"]["file_path"]
-          return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+      async with Client(
+          "mi_bot_session",
+          api_id=API_ID,
+          api_hash=API_HASH,
+          bot_token=BOT_TOKEN,
+          in_memory=True,
+      ) as app_client:
+        msg = await app_client.get_messages(CHANNEL_ID, msg_id)
+        if msg and (msg.video or msg.document):
+          media = msg.video or msg.document
+          file_id = media.file_id
+          r = requests.get(
+              f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+          ).json()
+          if r.get("ok"):
+            file_path = r["result"]["file_path"]
+            return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
       return None
 
     download_url = loop.run_until_complete(get_url())
+    loop.close()
+
     if not download_url:
       return "Video no encontrado en el canal", 404
 

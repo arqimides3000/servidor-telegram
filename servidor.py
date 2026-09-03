@@ -1,10 +1,24 @@
+import asyncio
 import os
+from flask import Response, request
+from pyrogram import Client
 import requests
-from flask import Flask, Response
+from flask import Flask
 
 app = Flask(__name__)
 
+API_ID = os.environ.get("TELEGRAM_API_ID")
+API_HASH = os.environ.get("TELEGRAM_API_HASH")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID")
+
+app_client = Client(
+    "mi_bot_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+    in_memory=True,
+)
 
 
 @app.route("/")
@@ -12,26 +26,30 @@ def home():
   return "HELLO, WORLD!"
 
 
-@app.route("/stream/<file_id>")
-def stream_telegram(file_id):
+@app.route("/stream/<int:msg_id>")
+def stream_telegram(msg_id):
   try:
-    if not BOT_TOKEN:
-      return "TELEGRAM_BOT_TOKEN no configurado", 500
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    api_url = (
-        f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
-    )
-    respuesta_tg = requests.get(api_url).json()
+    async def get_url():
+      if not app_client.is_connected:
+        await app_client.start()
+      msg = await app_client.get_messages(CHANNEL_ID, msg_id)
+      if msg and (msg.video or msg.document):
+        media = msg.video or msg.document
+        file_id = media.file_id
+        r = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+        ).json()
+        if r.get("ok"):
+          file_path = r["result"]["file_path"]
+          return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+      return None
 
-    if not respuesta_tg.get("ok"):
-      return (
-          f"Error de Telegram:"
-          f" {respuesta_tg.get('description', 'Desconocido')}",
-          400,
-      )
-
-    file_path = respuesta_tg["result"]["file_path"]
-    download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    download_url = loop.run_until_complete(get_url())
+    if not download_url:
+      return "Video no encontrado en el canal", 404
 
     video_req = requests.get(download_url, stream=True)
     return Response(

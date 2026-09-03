@@ -1,9 +1,8 @@
 import os
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from flask import Flask, Response, request, stream_with_context
 from pyrogram import Client
 
-app = FastAPI()
+app = Flask(__name__)
 
 api_id = int(os.environ.get("TELEGRAM_API_ID", 0))
 api_hash = os.environ.get("TELEGRAM_API_HASH", "")
@@ -11,15 +10,15 @@ session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
 
-@app.get("/")
+@app.route("/")
 def home():
-  return {"status": "SERVIDOR ACTIVO - PELIS ROLANDO"}
+  return "SERVIDOR ACTIVO - PELIS ROLANDO"
 
 
-@app.get("/stream/{msg_id}")
-async def stream_telegram(msg_id: int, request: Request):
+@app.route("/stream/<int:msg_id>")
+async def stream_telegram(msg_id):
   if not api_id or not api_hash or not session_string or not channel_input:
-    raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+    return "Faltan variables de entorno", 500
 
   channel_id = (
       int(channel_input)
@@ -44,18 +43,17 @@ async def stream_telegram(msg_id: int, request: Request):
 
   if not msg or not (msg.video or msg.document):
     await client.stop()
-    raise HTTPException(status_code=404, detail="Video no encontrado")
+    return "Video no encontrado", 404
 
   media = msg.video or msg.document
   file_size = media.file_size
   mime_type = getattr(media, "mime_type", "video/mp4")
 
+  # Si se abre desde el navegador web de la PC, muestra el reproductor
   accept_header = request.headers.get("accept", "")
-
-  # Si se abre desde la computadora (navegador web), mostramos el reproductor online
   if "text/html" in accept_header:
     await client.stop()
-    stream_url = str(request.url)
+    stream_url = request.url
     html_player = f"""
         <!DOCTYPE html>
         <html>
@@ -74,9 +72,9 @@ async def stream_telegram(msg_id: int, request: Request):
         </body>
         </html>
         """
-    return HTMLResponse(content=html_player)
+    return html_player
 
-  # Para la app de Android o streaming directo, enviamos los fragmentos en tiempo real
+  # Streaming fluido por fragmentos para la app de Android o reproductor directo
   async def generate():
     try:
       async for chunk in client.stream_media(msg):
@@ -84,18 +82,16 @@ async def stream_telegram(msg_id: int, request: Request):
     finally:
       await client.stop()
 
-  return StreamingResponse(
-      generate(),
-      media_type=mime_type,
-      headers={
-          "Content-Length": str(file_size),
-          "Accept-Ranges": "bytes",
-      },
+  response = Response(
+      stream_with_context(generate()),
+      mimetype=mime_type,
+      direct_passthrough=True,
   )
+  response.headers.add("Content-Length", str(file_size))
+  response.headers.add("Accept-Ranges", "bytes")
+  return response
 
 
 if __name__ == "__main__":
-  import uvicorn
-
   port = int(os.environ.get("PORT", 10000))
-  uvicorn.run("servidor:app", host="0.0.0.0", port=port)
+  app.run(host="0.0.0.0", port=port)

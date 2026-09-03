@@ -44,8 +44,9 @@ def stream_telegram(msg_id):
           bot_token=bot_token,
           in_memory=True,
       ) as app_client:
-        # Forzar la resolución del canal privado para evitar el error de Peer ID
-        await app_client.get_chat(channel_id)
+        # Carga los chats del bot para registrar el canal privado en memoria
+        async for dialog in app_client.get_dialogs():
+          pass
 
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):

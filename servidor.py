@@ -7,7 +7,7 @@ except RuntimeError:
 
 import os
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pyrogram import Client
 
 app = FastAPI()
@@ -17,7 +17,7 @@ api_hash = os.environ.get("TELEGRAM_API_HASH", "")
 session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
-# Cliente global persistente para evitar que se cierre durante el streaming
+TEMP_DIR = "/tmp"
 bot_client = None
 
 
@@ -62,7 +62,16 @@ async def stream_telegram(msg_id: int, request: Request):
     raise HTTPException(status_code=404, detail="Video no encontrado")
 
   media = msg.video or msg.document
-  file_size = media.file_size
+  file_name = (
+      getattr(media, "file_name", f"video_{msg_id}.mp4")
+      or f"video_{msg_id}.mp4"
+  )
+  local_path = os.path.join(TEMP_DIR, f"{msg_id}_{file_name}")
+
+  # Si el archivo no está guardado en Render, lo descarga rápido una sola vez
+  if not os.path.exists(local_path):
+    await client.download_media(msg, file_name=local_path)
+
   mime_type = getattr(media, "mime_type", "video/mp4")
 
   accept_header = request.headers.get("accept", "")
@@ -88,39 +97,8 @@ async def stream_telegram(msg_id: int, request: Request):
         """
     return HTMLResponse(content=html_player)
 
-  range_header = request.headers.get("range")
-  offset = 0
-  if range_header:
-    try:
-      parts = range_header.replace("bytes=", "").split("-")
-      if parts[0]:
-        offset = int(parts[0])
-    except ValueError:
-      offset = 0
-
-  async def generate():
-    try:
-      async for chunk in client.stream_media(msg, offset=offset):
-        yield chunk
-    except TypeError:
-      current = 0
-      async for chunk in client.stream_media(msg):
-        chunk_len = len(chunk)
-        if current + chunk_len > offset:
-          if current < offset:
-            chunk = chunk[offset - current :]
-          yield chunk
-        current += chunk_len
-
-  headers = {
-      "Content-Length": str(file_size - offset),
-      "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",
-      "Accept-Ranges": "bytes",
-  }
-
-  return StreamingResponse(
-      generate(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
-  )
+  # FileResponse gestiona de forma perfecta los saltos de bytes (Range headers) para PC, Android y Fire TV
+  return FileResponse(local_path, media_type=mime_type, filename=file_name)
 
 
 if __name__ == "__main__":

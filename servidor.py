@@ -57,7 +57,6 @@ async def stream_telegram(msg_id: int, request: Request):
   file_size = media.file_size
   mime_type = getattr(media, "mime_type", "video/mp4")
 
-  # Si se abre desde la PC (navegador), muestra el reproductor web
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
     await client.stop()
@@ -82,7 +81,6 @@ async def stream_telegram(msg_id: int, request: Request):
         """
     return HTMLResponse(content=html_player)
 
-  # Lectura y cálculo exacto del rango de bytes solicitado por Android / Fire TV
   range_header = request.headers.get("range")
   offset = 0
   if range_header:
@@ -95,18 +93,25 @@ async def stream_telegram(msg_id: int, request: Request):
 
   async def generate():
     try:
-      current_byte = 0
+      # Transmisión directa optimizada por bloques
+      async for chunk in client.stream_media(msg, offset=offset // 1024 if hasattr(client.stream_media, 'offset') else 0):
+        yield chunk
+    except Exception:
+      pass
+    finally:
+      await client.stop()
+
+  # Si la versión de Pyrogram soporta offset directo en stream_media, evitamos el bucle pesado
+  async def generate_safe():
+    try:
+      current = 0
       async for chunk in client.stream_media(msg):
         chunk_len = len(chunk)
-        if current_byte + chunk_len <= offset:
-          current_byte += chunk_len
-          continue
-        if current_byte < offset:
-          diff = offset - current_byte
-          chunk = chunk[diff:]
-          current_byte = offset
-        current_byte += len(chunk)
-        yield chunk
+        if current + chunk_len > offset:
+          if current < offset:
+            chunk = chunk[offset - current :]
+          yield chunk
+        current += chunk_len
     finally:
       await client.stop()
 
@@ -117,7 +122,7 @@ async def stream_telegram(msg_id: int, request: Request):
   }
 
   return StreamingResponse(
-      generate(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
+      generate_safe(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
   )
 
 

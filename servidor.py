@@ -6,10 +6,11 @@ except RuntimeError:
   asyncio.set_event_loop(asyncio.new_event_loop())
 
 import os
-from flask import Flask, Response, request, stream_with_context
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pyrogram import Client
 
-app = Flask(__name__)
+app = FastAPI()
 
 api_id = int(os.environ.get("TELEGRAM_API_ID", 0))
 api_hash = os.environ.get("TELEGRAM_API_HASH", "")
@@ -17,15 +18,15 @@ session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
 
-@app.route("/")
+@app.get("/")
 def home():
-  return "SERVIDOR ACTIVO - PELIS ROLANDO"
+  return {"status": "SERVIDOR ACTIVO - PELIS ROLANDO"}
 
 
-@app.route("/stream/<int:msg_id>")
-async def stream_telegram(msg_id):
+@app.get("/stream/{msg_id}")
+async def stream_telegram(msg_id: int, request: Request):
   if not api_id or not api_hash or not session_string or not channel_input:
-    return "Faltan variables de entorno", 500
+    raise HTTPException(status_code=500, detail="Faltan variables de entorno")
 
   channel_id = (
       int(channel_input)
@@ -50,7 +51,7 @@ async def stream_telegram(msg_id):
 
   if not msg or not (msg.video or msg.document):
     await client.stop()
-    return "Video no encontrado", 404
+    raise HTTPException(status_code=404, detail="Video no encontrado")
 
   media = msg.video or msg.document
   file_size = media.file_size
@@ -59,7 +60,7 @@ async def stream_telegram(msg_id):
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
     await client.stop()
-    stream_url = request.url
+    stream_url = str(request.url)
     html_player = f"""
         <!DOCTYPE html>
         <html>
@@ -78,7 +79,7 @@ async def stream_telegram(msg_id):
         </body>
         </html>
         """
-    return html_player
+    return HTMLResponse(content=html_player)
 
   async def generate():
     try:
@@ -87,16 +88,18 @@ async def stream_telegram(msg_id):
     finally:
       await client.stop()
 
-  response = Response(
-      stream_with_context(generate()),
-      mimetype=mime_type,
-      direct_passthrough=True,
+  return StreamingResponse(
+      generate(),
+      media_type=mime_type,
+      headers={
+          "Content-Length": str(file_size),
+          "Accept-Ranges": "bytes",
+      },
   )
-  response.headers.add("Content-Length", str(file_size))
-  response.headers.add("Accept-Ranges", "bytes")
-  return response
 
 
 if __name__ == "__main__":
+  import uvicorn
+
   port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
+  uvicorn.run("servidor:app", host="0.0.0.0", port=port)

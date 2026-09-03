@@ -49,7 +49,6 @@ async def stream_telegram(msg_id):
   file_size = media.file_size
   mime_type = getattr(media, "mime_type", "video/mp4")
 
-  # Si se abre desde el navegador web de la PC, muestra el reproductor
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
     await client.stop()
@@ -74,7 +73,6 @@ async def stream_telegram(msg_id):
         """
     return html_player
 
-  # Streaming fluido por fragmentos para la app de Android o reproductor directo
   async def generate():
     try:
       async for chunk in client.stream_media(msg):

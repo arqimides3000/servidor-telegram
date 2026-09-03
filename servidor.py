@@ -18,6 +18,27 @@ session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
 TEMP_DIR = "/tmp"
+bot_client = None
+
+
+@app.on_event("startup")
+async def startup_event():
+  global bot_client
+  if api_id and api_hash and session_string:
+    bot_client = Client(
+        "server_session",
+        api_id=api_id,
+        api_hash=api_hash,
+        session_string=session_string,
+        in_memory=True,
+    )
+    await bot_client.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+  if bot_client:
+    await bot_client.stop()
 
 
 @app.get("/")
@@ -27,8 +48,10 @@ def home():
 
 @app.get("/stream/{msg_id}")
 async def stream_telegram(msg_id: int, request: Request):
-  if not api_id or not api_hash or not session_string or not channel_input:
-    raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+  if not bot_client:
+    raise HTTPException(
+        status_code=500, detail="Cliente de Telegram no iniciado"
+    )
 
   channel_id = (
       int(channel_input)
@@ -40,34 +63,23 @@ async def stream_telegram(msg_id: int, request: Request):
       )
   )
 
-  client = Client(
-      "server_session",
-      api_id=api_id,
-      api_hash=api_hash,
-      session_string=session_string,
-      in_memory=True,
-  )
-
-  await client.start()
-  msg = await client.get_messages(channel_id, msg_id)
-
+  msg = await bot_client.get_messages(channel_id, msg_id)
   if not msg or not (msg.video or msg.document):
-    await client.stop()
     raise HTTPException(status_code=404, detail="Video no encontrado")
 
   media = msg.video or msg.document
-  file_name = getattr(media, "file_name", f"video_{msg_id}.mp4") or f"video_{msg_id}.mp4"
+  file_name = (
+      getattr(media, "file_name", f"video_{msg_id}.mp4")
+      or f"video_{msg_id}.mp4"
+  )
   local_path = os.path.join(TEMP_DIR, f"{msg_id}_{file_name}")
 
-  # Si el video no está guardado temporalmente en Render, lo descarga rápido una sola vez
+  # Descarga el archivo completo a la memoria temporal de Render una sola vez
   if not os.path.exists(local_path):
-    await client.download_media(msg, file_name=local_path)
-
-  await client.stop()
+    await bot_client.download_media(msg, file_name=local_path)
 
   mime_type = getattr(media, "mime_type", "video/mp4")
 
-  # Si se abre desde la PC, muestra el reproductor web
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
     stream_url = str(request.url)
@@ -91,7 +103,7 @@ async def stream_telegram(msg_id: int, request: Request):
         """
     return HTMLResponse(content=html_player)
 
-  # FileResponse maneja los saltos de bytes (Range headers) automáticamente de forma perfecta para Android / Fire TV
+  # FileResponse entrega el archivo local gestionando los saltos de bytes perfectamente
   return FileResponse(local_path, media_type=mime_type, filename=file_name)
 
 

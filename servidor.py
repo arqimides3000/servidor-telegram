@@ -44,7 +44,6 @@ def stream_telegram(msg_id):
       )
 
     async def get_url():
-      # Guardar la sesión en /tmp para reutilizarla y evitar bloqueos de Flood Wait
       session_path = "/tmp/bot_session"
       async with Client(
           session_path,
@@ -69,7 +68,34 @@ def stream_telegram(msg_id):
     if not download_url:
       return "Video no encontrado en el canal o ID incorrecto", 404
 
-    return redirect(download_url)
+    # Detectar si la petición viene de un navegador web (PC) o del reproductor de la app
+    accept_header = request.headers.get("Accept", "")
+
+    if "text/html" in accept_header:
+      # Para navegadores web: mostrar la página HTML con el reproductor integrado para verlo online
+      html_player = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Reproductor - Pelis Rolando</title>
+                <meta charset="utf-8">
+                <style>
+                    body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+                    video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
+                </style>
+            </head>
+            <body>
+                <video controls autoplay playsinline>
+                    <source src="{download_url}" type="video/mp4">
+                    Tu navegador no soporta la reproducción de video.
+                </video>
+            </body>
+            </html>
+            """
+      return html_player
+    else:
+      # Para la app de Android: redirección directa para streaming nativo en el VideoView
+      return redirect(download_url)
 
   except Exception as e:
     return f"Error en el servidor: {str(e)}", 500

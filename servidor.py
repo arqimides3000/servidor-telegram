@@ -7,7 +7,7 @@ except RuntimeError:
 
 import os
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pyrogram import Client
 
 app = FastAPI()
@@ -16,6 +16,8 @@ api_id = int(os.environ.get("TELEGRAM_API_ID", 0))
 api_hash = os.environ.get("TELEGRAM_API_HASH", "")
 session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+
+TEMP_DIR = "/tmp"
 
 
 @app.get("/")
@@ -54,12 +56,20 @@ async def stream_telegram(msg_id: int, request: Request):
     raise HTTPException(status_code=404, detail="Video no encontrado")
 
   media = msg.video or msg.document
-  file_size = media.file_size
+  file_name = getattr(media, "file_name", f"video_{msg_id}.mp4") or f"video_{msg_id}.mp4"
+  local_path = os.path.join(TEMP_DIR, f"{msg_id}_{file_name}")
+
+  # Si el video no está guardado temporalmente en Render, lo descarga rápido una sola vez
+  if not os.path.exists(local_path):
+    await client.download_media(msg, file_name=local_path)
+
+  await client.stop()
+
   mime_type = getattr(media, "mime_type", "video/mp4")
 
+  # Si se abre desde la PC, muestra el reproductor web
   accept_header = request.headers.get("accept", "")
   if "text/html" in accept_header:
-    await client.stop()
     stream_url = str(request.url)
     html_player = f"""
         <!DOCTYPE html>
@@ -81,49 +91,8 @@ async def stream_telegram(msg_id: int, request: Request):
         """
     return HTMLResponse(content=html_player)
 
-  range_header = request.headers.get("range")
-  offset = 0
-  if range_header:
-    try:
-      parts = range_header.replace("bytes=", "").split("-")
-      if parts[0]:
-        offset = int(parts[0])
-    except ValueError:
-      offset = 0
-
-  async def generate():
-    try:
-      # Transmisión directa optimizada por bloques
-      async for chunk in client.stream_media(msg, offset=offset // 1024 if hasattr(client.stream_media, 'offset') else 0):
-        yield chunk
-    except Exception:
-      pass
-    finally:
-      await client.stop()
-
-  # Si la versión de Pyrogram soporta offset directo en stream_media, evitamos el bucle pesado
-  async def generate_safe():
-    try:
-      current = 0
-      async for chunk in client.stream_media(msg):
-        chunk_len = len(chunk)
-        if current + chunk_len > offset:
-          if current < offset:
-            chunk = chunk[offset - current :]
-          yield chunk
-        current += chunk_len
-    finally:
-      await client.stop()
-
-  headers = {
-      "Content-Length": str(file_size - offset),
-      "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",
-      "Accept-Ranges": "bytes",
-  }
-
-  return StreamingResponse(
-      generate_safe(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
-  )
+  # FileResponse maneja los saltos de bytes (Range headers) automáticamente de forma perfecta para Android / Fire TV
+  return FileResponse(local_path, media_type=mime_type, filename=file_name)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,23 @@ api_hash = os.environ.get("TELEGRAM_API_HASH", "")
 session_string = os.environ.get("SESSION_STRING", "")
 channel_input = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 
+# Cliente global persistente para evitar que se cierre durante el streaming
+bot_client = None
+
+
+async def get_client():
+  global bot_client
+  if bot_client is None or not bot_client.is_connected:
+    bot_client = Client(
+        "server_session",
+        api_id=api_id,
+        api_hash=api_hash,
+        session_string=session_string,
+        in_memory=True,
+    )
+    await bot_client.start()
+  return bot_client
+
 
 @app.get("/")
 def home():
@@ -38,68 +55,72 @@ async def stream_telegram(msg_id: int, request: Request):
       )
   )
 
-  # async with gestiona el inicio y cierre limpio de la sesión al instante sin bloquear el servidor
-  async with Client(
-      "server_session",
-      api_id=api_id,
-      api_hash=api_hash,
-      session_string=session_string,
-      in_memory=True,
-  ) as bot_client:
-    msg = await bot_client.get_messages(channel_id, msg_id)
-    if not msg or not (msg.video or msg.document):
-      raise HTTPException(status_code=404, detail="Video no encontrado")
+  client = await get_client()
+  msg = await client.get_messages(channel_id, msg_id)
 
-    media = msg.video or msg.document
-    file_size = media.file_size
-    mime_type = getattr(media, "mime_type", "video/mp4")
+  if not msg or not (msg.video or msg.document):
+    raise HTTPException(status_code=404, detail="Video no encontrado")
 
-    accept_header = request.headers.get("accept", "")
-    if "text/html" in accept_header:
-      stream_url = str(request.url)
-      html_player = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Reproductor - Pelis Rolando</title>
-                <meta charset="utf-8">
-                <style>
-                    body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
-                    video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
-                </style>
-            </head>
-            <body>
-                <video controls autoplay playsinline src="{stream_url}">
-                    Tu navegador no soporta la reproducción de video.
-                </video>
-            </body>
-            </html>
-            """
-      return HTMLResponse(content=html_player)
+  media = msg.video or msg.document
+  file_size = media.file_size
+  mime_type = getattr(media, "mime_type", "video/mp4")
 
-    range_header = request.headers.get("range")
-    offset = 0
-    if range_header:
-      try:
-        parts = range_header.replace("bytes=", "").split("-")
-        if parts[0]:
-          offset = int(parts[0])
-      except ValueError:
-        offset = 0
+  accept_header = request.headers.get("accept", "")
+  if "text/html" in accept_header:
+    stream_url = str(request.url)
+    html_player = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Reproductor - Pelis Rolando</title>
+            <meta charset="utf-8">
+            <style>
+                body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+                video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
+            </style>
+        </head>
+        <body>
+            <video controls autoplay playsinline src="{stream_url}">
+                Tu navegador no soporta la reproducción de video.
+            </video>
+        </body>
+        </html>
+        """
+    return HTMLResponse(content=html_player)
 
-    async def generate():
-      async for chunk in bot_client.stream_media(msg, offset=offset):
+  range_header = request.headers.get("range")
+  offset = 0
+  if range_header:
+    try:
+      parts = range_header.replace("bytes=", "").split("-")
+      if parts[0]:
+        offset = int(parts[0])
+    except ValueError:
+      offset = 0
+
+  async def generate():
+    try:
+      async for chunk in client.stream_media(msg, offset=offset):
         yield chunk
+    except TypeError:
+      current = 0
+      async for chunk in client.stream_media(msg):
+        chunk_len = len(chunk)
+        if current + chunk_len > offset:
+          if current < offset:
+            chunk = chunk[offset - current :]
+          yield chunk
+        current += chunk_len
 
-    headers = {
-        "Content-Length": str(file_size - offset),
-        "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",
-        "Accept-Ranges": "bytes",
-    }
+  headers = {
+      "Content-Length": str(file_size - offset),
+      "Content-Range": f"bytes {offset}-{file_size - 1}/{file_size}",
+      "Accept-Ranges": "bytes",
+  }
 
-    return StreamingResponse(
-        generate(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
-    )
+  return StreamingResponse(
+      generate(), status_code=206 if range_header else 200, headers=headers, media_type=mime_type
+  )
 
 
 if __name__ == "__main__":

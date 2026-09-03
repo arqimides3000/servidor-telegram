@@ -25,8 +25,6 @@ def home():
 @app.route("/stream/<int:msg_id>")
 def stream_telegram(msg_id):
   try:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
 
     async def get_url():
       async with Client(
@@ -48,8 +46,7 @@ def stream_telegram(msg_id):
             return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
       return None
 
-    download_url = loop.run_until_complete(get_url())
-    loop.close()
+    download_url = asyncio.run(get_url())
 
     if not download_url:
       return "Video no encontrado en el canal", 404

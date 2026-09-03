@@ -6,7 +6,7 @@ try:
 except RuntimeError:
   asyncio.set_event_loop(asyncio.new_event_loop())
 
-from flask import Flask, redirect, request
+from flask import Flask, request
 from pyrogram import Client
 import requests
 
@@ -68,7 +68,27 @@ def stream_telegram(msg_id):
     if not download_url:
       return "Video no encontrado en el canal o ID incorrecto", 404
 
-    return redirect(download_url)
+    # Renderizar una página HTML con el reproductor integrado para que se reproduzca en pantalla
+    html_player = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Reproductor - Telegram Stream</title>
+            <meta charset="utf-8">
+            <style>
+                body {{ background-color: #0b0b0b; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+                video {{ width: 100%; max-width: 900px; max-height: 90vh; outline: none; }}
+            </style>
+        </head>
+        <body>
+            <video controls autoplay playsinline>
+                <source src="{download_url}" type="video/mp4">
+                Tu navegador no soporta la reproducción de video.
+            </video>
+        </body>
+        </html>
+        """
+    return html_player
 
   except Exception as e:
     return f"Error en el servidor: {str(e)}", 500

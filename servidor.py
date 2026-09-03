@@ -29,15 +29,18 @@ def stream_telegram(msg_id):
     if not api_id_str or not api_hash or not bot_token or not channel_id_str:
       return "Error: Faltan variables de entorno en Render", 500
 
-    api_id = int(api_id_str)
+    api_id = int(api_id_str.strip())
+    bot_token = bot_token.strip()
+    api_hash = api_hash.strip()
 
+    # Limpiar espacios y asegurar formato numérico correcto para el canal
+    clean_channel = channel_id_str.strip()
     try:
-      channel_id = int(channel_id_str)
+      channel_id = int(clean_channel)
     except ValueError:
-      channel_id = channel_id_str
+      channel_id = clean_channel
 
     async def get_url():
-      # Usar /tmp para guardar la sesión y cachear el canal correctamente
       session_file = "/tmp/mi_bot_session"
       async with Client(
           session_file,
@@ -45,7 +48,11 @@ def stream_telegram(msg_id):
           api_hash=api_hash,
           bot_token=bot_token,
       ) as app_client:
-        await app_client.get_chat(channel_id)
+        # Intentar forzar resolución del chat
+        try:
+          await app_client.get_chat(channel_id)
+        except Exception:
+          pass
 
         msg = await app_client.get_messages(channel_id, msg_id)
         if msg and (msg.video or msg.document):
